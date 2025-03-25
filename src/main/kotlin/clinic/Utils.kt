@@ -1,5 +1,8 @@
 package clinic
 
+import org.springframework.security.core.Authentication
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.core.userdetails.UserDetails
 import java.time.*
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -23,6 +26,26 @@ class DateUtils {
 
         fun toHour(timestamp: Long): LocalTime {
             return Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC).toLocalTime()
+        }
+    }
+}
+
+class SpringSecurityUtil {
+    companion object {
+        private fun getAuthentication(): Authentication {
+            val authentication = SecurityContextHolder.getContext().authentication
+            if (authentication == null || !authentication.isAuthenticated || authentication.principal == "anonymousUser") {
+                throw ForbiddenException()
+            }
+            return authentication
+        }
+
+        fun getCurrentUser(): UserDetails {
+            return getAuthentication().principal as UserDetails
+        }
+
+        fun getCurrentUserId(): Long {
+            return (getAuthentication().principal as Employee).getId()
         }
     }
 }

@@ -3,8 +3,31 @@ package clinic
 import jakarta.validation.Valid
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.*
+
+
+@RestController
+@RequestMapping("/api/auth")
+class AuthController(
+    private val authenticationService: AuthenticationService
+) {
+
+    @PostMapping
+    fun authenticate(@RequestBody authRequest: AuthenticationRequest): AuthenticationResponse =
+        authenticationService.authentication(authRequest)
+
+    @PostMapping("/refresh")
+    fun refreshToken(
+        @RequestBody request: RefreshTokenRequest
+    ): TokenResponse =
+        authenticationService.refreshAccessToken(request.token)?.mapToTokenResponse() ?: throw ForbiddenException()
+
+    private fun String.mapToTokenResponse(): TokenResponse = TokenResponse(
+        token = this
+    )
+}
 
 @RequestMapping("/api/patient")
 @RestController
@@ -12,14 +35,17 @@ import org.springframework.web.bind.annotation.*
 class PatientController(private val patientService: PatientService) {
 
     @PostMapping
+    @PreAuthorize("hasRole('ROLE_DOCTOR')")
     fun create(@RequestBody @Valid request: PatientCreateRequest) = patientService.create(request)
 
     @GetMapping
+    @PreAuthorize("hasRole('ROLE_DIRECTOR')")
     fun list(@Valid params: RequestParams): Page<PatientResponse> {
         return patientService.getAll(PageRequest.of(params.page, params.size))
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ROLE_DOCTOR','ROLE_DIRECTOR')")
     fun getOne(@PathVariable("id") id: Long) = patientService.getOne(id)
 
     @PutMapping("/{id}")
@@ -113,21 +139,21 @@ class CardController(private val cardService: CardServiceC) {
 
     @PutMapping("/{id}/{doctorId}")
     fun updateCard(@PathVariable id: Long, @PathVariable("doctorId") doctorId: Long, request: CardUpdateRequest) =
-        cardService.updateCardService(id,doctorId,request)
+        cardService.updateCardService(id, doctorId, request)
 
     @GetMapping("/{patientId}")
-    fun getOne(@PathVariable patientId:Long) : CardResponse = cardService.getPatientServices(patientId)
+    fun getOne(@PathVariable patientId: Long): CardResponse = cardService.getPatientServices(patientId)
 }
 
 @RequestMapping("/api/payment")
 @RestController
-class PaymentController(private val paymentService: PaymentService){
+class PaymentController(private val paymentService: PaymentService) {
     @PostMapping
-    fun create(@RequestBody @Valid request:PaymentCreateRequest)  = paymentService.create(request)
+    fun create(@RequestBody @Valid request: PaymentCreateRequest) = paymentService.create(request)
 
 
     @GetMapping("{patientId}")
-    fun list (@PathVariable patientId : Long) = paymentService.getDetailPaymentsOfPatient(patientId)
+    fun list(@PathVariable patientId: Long) = paymentService.getDetailPaymentsOfPatient(patientId)
 
 }
 

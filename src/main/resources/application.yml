@@ -1,3 +1,8 @@
+jwt:
+  key: "salomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesan"
+  access-token-expiration: 3600000
+  refresh-token-expiration: 864000000
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/clinicdb
@@ -16,3 +21,4 @@ spring:
   messages:
     basename: error/error
     encoding: UTF-8
+

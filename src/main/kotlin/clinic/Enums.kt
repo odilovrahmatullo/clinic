@@ -38,6 +38,7 @@ enum class ErrorCode(val code: Int) {
     DOCTOR_SCHEDULE_NOT_FOUND(400),
     DOCTOR_SCHEDULE_NOT_AVAILABLE(401),
 
+
     NO_HAVE_PERMISSION(500),
 
     CARD_NOT_FOUND(550),
@@ -47,4 +48,9 @@ enum class ErrorCode(val code: Int) {
     BEFORE_TIME_ERROR(650),
 
     BALANCE_NOT_ENOUGH(700),
+
+    LOGIN_ERROR_EXCEPTION(777),
+
+    FORBIDDEN_EXCEPTION(403),
+    EMPLOYEE_HAS_NO_ROLE(555)
 }

@@ -1,13 +1,22 @@
 package clinic
 
 import ch.qos.logback.core.net.server.Client
+import com.fasterxml.jackson.databind.ObjectMapper
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.i18n.LocaleContextHolder
 import org.springframework.context.support.ResourceBundleMessageSource
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.authentication.BadCredentialsException
+import org.springframework.security.core.userdetails.UsernameNotFoundException
+import org.springframework.security.web.access.AccessDeniedHandler
+import org.springframework.stereotype.Component
 import org.springframework.validation.BindException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.client.HttpClientErrorException.Forbidden
 import java.util.*
 import java.util.stream.Collectors
 
@@ -44,6 +53,31 @@ class ExceptionHandler(
             )
         )
     }
+
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleBadCredentialsException(exception: AccessDeniedException ): ResponseEntity<BaseMessage> {
+        val errorCode = ErrorCode.FORBIDDEN_EXCEPTION
+        val message = errorMessageSource.getMessage(
+            errorCode.toString(),
+            null,
+            Locale(LocaleContextHolder.getLocale().language)
+        )
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(BaseMessage(errorCode.code, message))
+    }
+
+    @ExceptionHandler(ForbiddenException::class)
+    fun handleBadCredentialsException(exception: BadCredentialsException): ResponseEntity<BaseMessage> {
+        val errorCode = ErrorCode.LOGIN_ERROR_EXCEPTION
+        val message = errorMessageSource.getMessage(
+            errorCode.toString(),
+            null,
+            Locale(LocaleContextHolder.getLocale().language)
+        )
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+            .body(BaseMessage(errorCode.code, message))
+    }
+
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun on(e: MethodArgumentNotValidException): ResponseEntity<Any> {
@@ -95,6 +129,32 @@ sealed class ClinicException(message: String? = null) : RuntimeException(message
     }
 }
 
+@Component
+class CustomAccessDeniedHandler(
+    private val errorMessageSource: ResourceBundleMessageSource
+) : AccessDeniedHandler {
+    override fun handle(
+        request: HttpServletRequest?,
+        response: HttpServletResponse?,
+        accessDeniedException: org.springframework.security.access.AccessDeniedException?
+    ) {
+        val errorCode = ErrorCode.FORBIDDEN_EXCEPTION
+        val message = errorMessageSource.getMessage(
+            errorCode.toString(),
+            null,
+            Locale(LocaleContextHolder.getLocale().language)
+        )
+
+        val responseBody = BaseMessage(errorCode.code, message)
+
+        response?.status = HttpServletResponse.SC_FORBIDDEN
+        response?.contentType = "application/json"
+        response?.characterEncoding = "UTF-8"
+        response?.writer?.write(ObjectMapper().writeValueAsString(responseBody))
+    }
+}
+
+
 data class ValidationErrorMessage(val code: Int, val message: String, val fields: Map<String, Any?>)
 
 class PatientAlreadyExistException : ClinicException() {
@@ -144,4 +204,15 @@ class BeforeTimeException : ClinicException() {
 
 class BalanceNotEnoughException : ClinicException(){
     override fun errorType() = ErrorCode.BALANCE_NOT_ENOUGH
+}
+
+class AuthenticationException : ClinicException(){
+    override fun errorType() = ErrorCode.LOGIN_ERROR_EXCEPTION
+}
+
+class ForbiddenException : ClinicException(){
+    override fun errorType() = ErrorCode.FORBIDDEN_EXCEPTION
+}
+class EmployeeRoleNotExistException : ClinicException(){
+    override fun errorType () = ErrorCode.EMPLOYEE_HAS_NO_ROLE
 }

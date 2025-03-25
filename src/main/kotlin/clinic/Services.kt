@@ -1,11 +1,142 @@
 package clinic
 
+import io.jsonwebtoken.Claims
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.SignatureAlgorithm
+import io.jsonwebtoken.security.Keys
 import jakarta.transaction.Transactional
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
+import org.springframework.security.authentication.AuthenticationManager
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.userdetails.UserDetails
+import org.springframework.security.core.userdetails.UserDetailsService
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
 import java.time.LocalDate
+import java.util.Date
+
+@Service
+class TokenService(
+    jwtProperties: JwtProperties
+) {
+    private val secretKey = Keys.hmacShaKeyFor(
+        jwtProperties.key.toByteArray()
+    )
+
+    fun generate(
+        userDetails: UserDetails,
+        expirationDate: Date,
+        additionalClaims: Map<String, Any> = emptyMap()
+    ): String {
+        val role = userDetails.authorities.firstOrNull()?.authority ?: throw EmployeeRoleNotExistException()
+
+        return Jwts.builder()
+            .claims(additionalClaims + ("role" to role))
+            .subject(userDetails.username)
+            .issuedAt(Date(System.currentTimeMillis()))
+            .expiration(expirationDate)
+            .signWith(secretKey)
+            .compact()
+    }
+
+    fun extractUsername(token: String): String? = getAllClaims(token)
+        .subject
+
+    fun isExpired(token: String): Boolean = getAllClaims(token)
+        .expiration
+        .before(Date(System.currentTimeMillis()))
+
+    fun isValid(token: String, userDetails: UserDetails): Boolean {
+        val email = extractUsername(token)
+
+        return userDetails.username == email && !isExpired(token)
+
+
+    }
+
+    private fun getAllClaims(token: String): Claims {
+        val parser = Jwts.parser()
+            .verifyWith(secretKey)
+            .build()
+
+        return parser
+            .parseSignedClaims(token)
+            .payload
+    }
+}
+
+@Service
+class CustomUserDetailsService(
+    private val employeeRepository: EmployeeRepository
+) : UserDetailsService {
+    override fun loadUserByUsername(username: String): UserDetails {
+        return employeeRepository.findByUsernameAndDeletedFalse(username)
+            ?: throw AuthenticationException()
+    }
+}
+
+@Service
+class AuthenticationService(
+    private val authManager: AuthenticationManager,
+    private val userDetailsService: CustomUserDetailsService,
+    private val tokenService: TokenService,
+    private val jwtProperties: JwtProperties,
+    private val refreshTokenRepository: RefreshTokenRepository
+
+) {
+    fun authentication(authRequest: AuthenticationRequest): AuthenticationResponse {
+        authManager.authenticate(
+            UsernamePasswordAuthenticationToken(
+                authRequest.username,
+                authRequest.password
+            )
+        )
+
+        val user = userDetailsService.loadUserByUsername(authRequest.username)
+
+        val employee = user as Employee
+
+        val accessToken = generateAccessToken(user)
+
+        val refreshToken = generateRefreshToken(user)
+
+        refreshTokenRepository.save(RefreshToken(employee = employee, refreshToken = refreshToken))
+
+
+        return AuthenticationResponse(
+            accessToken = accessToken,
+            refreshToken = refreshToken
+        )
+    }
+
+    private fun generateRefreshToken(user: UserDetails) = tokenService.generate(
+        userDetails = user,
+        expirationDate = Date(System.currentTimeMillis() + jwtProperties.refreshTokenExpiration)
+    )
+
+    private fun generateAccessToken(user: UserDetails) = tokenService.generate(
+        userDetails = user,
+        expirationDate = Date(System.currentTimeMillis() + jwtProperties.accessTokenExpiration)
+    )
+
+    fun refreshAccessToken(token: String): String? {
+        val extractedUsername = tokenService.extractUsername(token)
+
+        return extractedUsername?.let { username ->
+            val currentUserDetails = userDetailsService.loadUserByUsername(username)
+            val refreshTokenUser = refreshTokenRepository.findRefreshTokenByRefreshTokenAndDeletedFalse(token)
+
+            if (!tokenService.isExpired(token) && currentUserDetails.username == refreshTokenUser.employee.username)
+                generateAccessToken(currentUserDetails)
+            else
+                null
+        }
+
+    }
+
+}
 
 interface PatientService {
     fun create(request: PatientCreateRequest)
@@ -15,8 +146,10 @@ interface PatientService {
     fun getPatient(id: Long): Patient
     fun update(id: Long, request: PatientUpdateRequest)
     fun updateBalance(id: Long, money: BigDecimal)
+    fun reduceBalance(patient: Patient,reducedMoney:BigDecimal)
 }
 
+// todo security qoshish kerak
 @Service
 class PatientServiceImpl(private val patientRepository: PatientRepository) : PatientService {
     override fun create(request: PatientCreateRequest) {
@@ -33,6 +166,7 @@ class PatientServiceImpl(private val patientRepository: PatientRepository) : Pat
             PatientResponse.toResponse(it)
         }
     }
+
 
     override fun getOne(id: Long): PatientResponse {
         return PatientResponse.toResponse(getPatient(id))
@@ -68,6 +202,11 @@ class PatientServiceImpl(private val patientRepository: PatientRepository) : Pat
         patient.balance += money
         patientRepository.save(patient)
     }
+
+    override fun reduceBalance(patient: Patient, reducedMoney: BigDecimal) {
+        patient.balance-=reducedMoney
+        patientRepository.save(patient)
+    }
 }
 
 interface EmployeeService {
@@ -81,14 +220,16 @@ interface EmployeeService {
 
 @Service
 class EmployeeServiceImpl(
+    private val encoder: PasswordEncoder,
     private val employeeRepository: EmployeeRepository
 ) : EmployeeService {
     override fun create(request: EmployeeCreateRequest) {
         request.run {
-            employeeRepository.save(toEntity())
+            employeeRepository.save(toEntity(encoder.encode(password)))
         }
     }
 
+    //todo search va filter qoshish
     override fun getAll(pageable: Pageable): Page<EmployeeResponse> {
         val pages: Page<Employee> = employeeRepository.findAllNotDeleted(pageable)
         return pages.map {
@@ -203,6 +344,7 @@ class DoctorScheduleServiceImpl(
     private val repository: DoctorScheduleRepository,
     private val employeeService: EmployeeService
 ) : DoctorScheduleService {
+
     override fun create(request: DoctorScheduleCreateRequest) {
         request.run {
             val doctor = employeeService.getEmployee(request.doctorId)
@@ -370,7 +512,7 @@ class CardImpl(
             map(it)
         }
         val totalAmount = paymentService.getTotalAmountOfPatient(patient)
-        return CardResponse(card.id!!,PatientResponse.toResponse(patient), totalAmount,cardServiceResponses)
+        return CardResponse(card.id!!, PatientResponse.toResponse(patient), totalAmount, cardServiceResponses)
     }
 
     private fun map(cardService: CardService): CardServiceResponse {
@@ -381,7 +523,8 @@ class CardImpl(
             cardService.doctor.fullName,
             cardService.fromDate.toString(),
             cardService.toDate.toString(),
-            cardService.status)
+            cardService.status
+        )
     }
 }
 
@@ -404,17 +547,15 @@ class PaymentServiceImpl(
 
             val userMoney = cardService.card.patient.balance
 
-            if (userMoney < paidAmount) {
-                throw BalanceNotEnoughException()
-            } else {
-                paymentRepository.save(
-                    Payment(
-                        cardService, cardService.card.patient, paidAmount,
-                        PaymentMethod.valueOf(paymentMethod), PaymentStatus.PAID
-                    )
+            if (userMoney < paidAmount) throw BalanceNotEnoughException()
+
+            paymentRepository.save(
+                Payment(
+                    cardService, cardService.card.patient, paidAmount,
+                    PaymentMethod.valueOf(paymentMethod), PaymentStatus.PAID
                 )
-                patientService.updateBalance(cardService.card.patient.id!!, -paidAmount)
-            }
+            )
+            patientService.reduceBalance(cardService.card.patient, paidAmount)
         }
     }
 
@@ -433,6 +574,7 @@ class PaymentServiceImpl(
         return PaymentResponseDetail(patient.fullName, paymentsList, totalMoney)
 
     }
+
 
     override fun getTotalAmountOfPatient(patient: Patient): BigDecimal {
         return paymentRepository.getTotalAmountOfUser(patient)

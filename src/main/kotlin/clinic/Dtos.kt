@@ -5,12 +5,30 @@ import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.PositiveOrZero
 import org.hibernate.validator.constraints.Length
+import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.data.jpa.domain.AbstractPersistable_.id
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.util.*
+
+
+data class AuthenticationRequest(
+    val username: String,
+    val password:String
+)
+
+data class TokenResponse(
+    val token:String
+)
+data class RefreshTokenRequest(
+    val token:String
+)
+data class AuthenticationResponse(
+    val accessToken:String,
+    val refreshToken:String
+)
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class BaseMessage(
@@ -33,10 +51,10 @@ data class PatientCreateRequest(
     @field:PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
     val balance: BigDecimal,
     @field:ValidEnum(enumClass = Gender::class, message = "GENDER_ERROR")
-    val gender: Gender,
+    val gender: String,
 ) {
     fun toEntity(birthDate: LocalDate): Patient {
-        return Patient(fullName, username, birthDate, balance, gender)
+        return Patient(fullName, username, birthDate, balance, Gender.valueOf(gender))
     }
 }
 
@@ -76,15 +94,18 @@ data class RequestParams(
 
     @field:Min(1, message = "SIZE_ERROR_MIN")
     var size: Int = 20
+
 )
 
 data class EmployeeCreateRequest(
     val fullName: String,
+    val username:String,
+    val password:String,
     @field:ValidEnum(enumClass = Role::class, message = "ROLE_ERROR")
     val role: String
 ) {
-    fun toEntity(): Employee {
-        return Employee(fullName, Role.valueOf(role))
+    fun toEntity(bcryptPassword:String): Employee {
+        return Employee(fullName, username,bcryptPassword, Role.valueOf(role))
     }
 }
 
@@ -282,4 +303,16 @@ data class PaymentResponse(
         }
     }
 }
+
+@ConfigurationProperties("jwt")
+data class JwtProperties(
+    val key:String,
+    val accessTokenExpiration:Long,
+    val refreshTokenExpiration:Long
+)
+
+data class JwtResponse(
+    val username: String,
+    val role:String
+)
 

@@ -64,7 +64,9 @@ interface PatientRepository : BaseRepository<Patient> {
 }
 
 @Repository
-interface EmployeeRepository : BaseRepository<Employee>
+interface EmployeeRepository : BaseRepository<Employee>{
+    fun findByUsernameAndDeletedFalse(username: String) : Employee?
+}
 
 @Repository
 interface ServiceRepository : BaseRepository<Service> {
@@ -100,4 +102,9 @@ interface PaymentRepository : BaseRepository<Payment> {
 
     @Query("SELECT SUM(p.paidAmount) FROM Payment as p where p.patient = ?1 and p.deleted = false ")
     fun getTotalAmountOfUser(patient: Patient): BigDecimal
+}
+
+@Repository
+interface RefreshTokenRepository : JpaRepository<RefreshToken,Long> {
+    fun findRefreshTokenByRefreshTokenAndDeletedFalse(token: String): RefreshToken
 }
