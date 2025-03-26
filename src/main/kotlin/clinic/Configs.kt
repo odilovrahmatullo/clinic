@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.support.ResourceBundleMessageSource
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing
+import org.springframework.http.HttpMethod
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.AuthenticationProvider
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
@@ -56,17 +57,17 @@ class WebMvcConfig : WebMvcConfigurer {
 @Configuration
 class Configuration {
     @Bean
-    fun userDetailsService(employeeRepository: EmployeeRepository): UserDetailsService =
-        CustomUserDetailsService(employeeRepository)
+    fun userDetailsService(userRepository: UserRepository): UserDetailsService =
+        CustomUserDetailsService(userRepository)
 
     @Bean
     fun encoder(): PasswordEncoder = BCryptPasswordEncoder()
 
     @Bean
-    fun authenticationProvider(employeeRepository: EmployeeRepository): AuthenticationProvider =
+    fun authenticationProvider(userRepository: UserRepository): AuthenticationProvider =
         DaoAuthenticationProvider()
             .also {
-                it.setUserDetailsService(userDetailsService(employeeRepository))
+                it.setUserDetailsService(userDetailsService(userRepository))
                 it.setPasswordEncoder(encoder())
 
             }
@@ -86,24 +87,28 @@ class JwtAuthenticationFilter(
         request: HttpServletRequest,
         response: HttpServletResponse,
         filterChain: FilterChain
-    ){
-        val authHeader: String? = request.getHeader("Authorization")
+    ) {
+        try {
+            val authHeader: String? = request.getHeader("Authorization")
 
-        if (authHeader.doesNotContainBearerToken()) {
-            filterChain.doFilter(request, response)
-            return
-        }
-
-        val jwtToken = authHeader!!.extractTokenValue()
-        val username = tokenService.extractUsername(jwtToken)
-
-        if (username != null && SecurityContextHolder.getContext().authentication == null) {
-            val foundEmployee = userDetailsService.loadUserByUsername(username)
-
-            if (tokenService.isValid(jwtToken, foundEmployee)) {
-                updateContext(foundEmployee, request)
+            if (authHeader.doesNotContainBearerToken()) {
+                filterChain.doFilter(request, response)
+                return
             }
 
+            val jwtToken = authHeader!!.extractTokenValue()
+            val username = tokenService.extractUsername(jwtToken)
+
+            if (username != null && SecurityContextHolder.getContext().authentication == null) {
+                val foundEmployee = userDetailsService.loadUserByUsername(username)
+
+                if (tokenService.isValid(jwtToken, foundEmployee)) {
+                    updateContext(foundEmployee, request)
+                }
+
+                filterChain.doFilter(request, response)
+            }
+        }catch (e: Exception) {
             filterChain.doFilter(request, response)
         }
     }
@@ -136,12 +141,12 @@ class SecurityConfiguration(
             .csrf { it.disable() }
             .authorizeHttpRequests {
                 it
-                    .requestMatchers("/api/auth", "/api/auth/**", "/error")
-                    .permitAll()
+                    .requestMatchers(HttpMethod.GET,"/api/services/**","/api/doctor").permitAll()
+                    .requestMatchers("/api/auth", "/api/auth/**", "/error","/api/payment","/api/user/patient").permitAll()
                     .anyRequest()
                     .fullyAuthenticated()
             }
-            .exceptionHandling{
+            .exceptionHandling {
                 it.accessDeniedHandler(customAccessDeniedHandler)
             }
             .sessionManagement {

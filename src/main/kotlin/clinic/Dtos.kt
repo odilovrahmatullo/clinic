@@ -3,31 +3,32 @@ package clinic
 import com.fasterxml.jackson.annotation.JsonInclude
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.PositiveOrZero
 import org.hibernate.validator.constraints.Length
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.data.jpa.domain.AbstractPersistable_.id
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.LocalTime
 import java.util.*
 
 
 data class AuthenticationRequest(
     val username: String,
-    val password:String
+    val password: String
 )
 
 data class TokenResponse(
-    val token:String
+    val token: String
 )
+
 data class RefreshTokenRequest(
-    val token:String
+    val token: String
 )
+
 data class AuthenticationResponse(
-    val accessToken:String,
-    val refreshToken:String
+    val accessToken: String,
+    val refreshToken: String
 )
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -40,42 +41,66 @@ data class BaseMessage(
 data class ValidationFieldError(val field: String, val message: String?)
 
 
+interface CreateUserRequest{
+    val fullName:String
+    val username:String
+    val password:String
+    val gender: String
+    fun toEntity(encodedPassword:String):User
+}
+data class UserCreateRequest(
+    @field:ValidEnum(enumClass = Role::class, message = "ROLE_ERROR")
+    val role: String,
+    @field:NotBlank(message = "THIS_FIELD_CANNOT_BE_BLANK")
+    @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
+    override val fullName: String,
+    @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
+    override val username: String,
+    override val password: String,
+    @field:ValidEnum(enumClass = Gender::class, message = "GENDER_ERROR")
+    override val gender: String,
+):CreateUserRequest {
+    override fun toEntity(encodedPassword: String): User {
+        val expectedRole = Role.valueOf(role)
+        if(expectedRole==Role.OWNER || expectedRole == Role.DIRECTOR) throw NoHavePermission()
+
+            return User(fullName, username,encodedPassword,expectedRole,Gender.valueOf(gender))
+        }
+    }
+
 data class PatientCreateRequest(
     @field:NotBlank(message = "THIS_FIELD_CANNOT_BE_BLANK")
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
-    val fullName: String,
+    override val fullName: String,
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
-    val username: String,
-    @field:PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
-    val dateOfBirth: Long,
-    @field:PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
-    val balance: BigDecimal,
+    override val username: String,
+    override val password: String,
     @field:ValidEnum(enumClass = Gender::class, message = "GENDER_ERROR")
-    val gender: String,
-) {
-    fun toEntity(birthDate: LocalDate): Patient {
-        return Patient(fullName, username, birthDate, balance, Gender.valueOf(gender))
+    override val gender: String,
+):CreateUserRequest {
+    override fun toEntity(encodedPassword: String): User {
+        return User(fullName, username,encodedPassword,Role.PATIENT,Gender.valueOf(gender))
     }
 }
 
-data class PatientResponse(
+
+data class UserResponse(
     val id: Long,
     val fullName: String,
     val username: String,
-    val dateOfBirth: LocalDate,
-    val balance: BigDecimal,
+    val role:Role,
     val gender: Gender
 ) {
     companion object {
-        fun toResponse(patient: Patient): PatientResponse {
+        fun toResponse(patient: User): UserResponse {
             patient.run {
-                return PatientResponse(id!!, fullName, username, dateOfBirth, balance, gender)
+                return UserResponse(id!!, fullName, username,role,gender)
             }
         }
     }
 }
 
-data class PatientUpdateRequest(
+data class UserUpdateRequest(
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
     val fullName: String?,
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
@@ -93,39 +118,19 @@ data class RequestParams(
     var page: Int = 0,
 
     @field:Min(1, message = "SIZE_ERROR_MIN")
-    var size: Int = 20
+    var size: Int = 20,
 
+    var search: String = ""
 )
 
-data class EmployeeCreateRequest(
-    val fullName: String,
-    val username:String,
-    val password:String,
-    @field:ValidEnum(enumClass = Role::class, message = "ROLE_ERROR")
-    val role: String
-) {
-    fun toEntity(bcryptPassword:String): Employee {
-        return Employee(fullName, username,bcryptPassword, Role.valueOf(role))
-    }
-}
 
 data class EmployeeUpdateRequest(
     val fullName: String?
 )
 
-data class EmployeeResponse(
-    val id: Long,
-    val fullName: String,
-    val role: Role,
-) {
-    companion object {
-        fun toResponse(employee: Employee): EmployeeResponse {
-            employee.run { return EmployeeResponse(id!!, fullName, role) }
-        }
-    }
-}
 
-data class ServiceCreateRequest(
+
+data class ItemCreateRequest(
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
     var name: String,
     var description: String,
@@ -135,12 +140,12 @@ data class ServiceCreateRequest(
     var duration: Long,
     var paymentType: String,
 ) {
-    fun toEntity(day: Long): Service {
-        return Service(name, description, price, day, paymentType)
+    fun toEntity(day: Long): Item {
+        return Item(name, description, price, day, paymentType)
     }
 }
 
-data class ServiceUpdateRequest(
+data class ItemUpdateRequest(
     @field:Length(max = 50, message = "THIS_FIELD_LENGTH_ERROR")
     var name: String?,
     var description: String?,
@@ -151,7 +156,7 @@ data class ServiceUpdateRequest(
     var paymentType: String?,
 )
 
-data class ServiceResponse(
+data class ItemResponse(
     val id: Long,
     val name: String,
     val description: String,
@@ -160,9 +165,9 @@ data class ServiceResponse(
     val paymentType: String,
 ) {
     companion object {
-        fun toResponse(service: Service): ServiceResponse {
+        fun toResponse(service: Item): ItemResponse {
             service.run {
-                return ServiceResponse(id!!, name, description, price, duration, paymentType)
+                return ItemResponse(id!!, name, description, price, duration, paymentType)
             }
         }
     }
@@ -170,8 +175,6 @@ data class ServiceResponse(
 }
 
 data class DoctorScheduleCreateRequest(
-    @field:Min(1, message = "SIZE_ERROR_MIN")
-    val doctorId: Long,
     @field: PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
     val dayOfWeek: Long,
     @field: PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
@@ -183,10 +186,10 @@ data class DoctorScheduleCreateRequest(
     @field: PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
     val launchEnd: Long,
 ) {
-    fun toEntity(doctor: Employee): DoctorSchedule {
+    fun toEntity(doctor: User,date: LocalDate): DoctorSchedule {
         return DoctorSchedule(
             doctor,
-            DateUtils.toYearMonthDate(dayOfWeek),
+            date,
             DateUtils.toHour(startTime),
             DateUtils.toHour(finishTime),
             DateUtils.toHour(launchStart),
@@ -236,9 +239,8 @@ data class DoctorScheduleResponse(
     }
 }
 
-data class CardRequest(
-    @field:Min(1, message = "SIZE_ERROR_MIN")
-    val patientId: Long,
+
+data class CardItemRequest(
     @field:Min(1, message = "SIZE_ERROR_MIN")
     val serviceId: Long,
     @field:Min(1, message = "SIZE_ERROR_MIN")
@@ -247,7 +249,7 @@ data class CardRequest(
     val fromDate: Long
 )
 
-data class CardUpdateRequest(
+data class CardItemUpdateRequest(
     @field: PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
     val fromDate: Long?,
     @field: PositiveOrZero(message = "THIS_FIELD_MUST_BE_POSITIVE")
@@ -258,17 +260,21 @@ data class CardUpdateRequest(
 
 data class CardResponse(
     val id: Long,
-    val patient: PatientResponse,
-    val totalAmount: BigDecimal,
-    val services: List<CardServiceResponse>
+    val patient: UserResponse,
+    val cardNumber:String,
+    val balance:BigDecimal,
+    val status : CardStatus,
+    val services: List<CardItemResponse>,
+    val totalPaidAmount: BigDecimal
 )
 
-data class CardServiceResponse(
-    val serviceResponse: ServiceResponse,
+data class CardItemResponse(
+    val serviceResponse: ItemResponse,
     val doctorName: String,
     val fromDate: String,
     val toDate: String,
-    val status: CardServiceStatus,
+    val status: CardItemStatus,
+    val paidMoney:BigDecimal
 )
 
 data class PaymentCreateRequest(
@@ -297,7 +303,7 @@ data class PaymentResponse(
     companion object {
         fun toEntity(payment: Payment): PaymentResponse {
             payment.run {
-                return PaymentResponse(id!!, cardService.service.name, paidAmount, paymentStatus, createdDate!!)
+                return PaymentResponse(id!!, cardItem.item.name, paidAmount, paymentStatus, createdDate!!)
 
             }
         }
@@ -306,13 +312,75 @@ data class PaymentResponse(
 
 @ConfigurationProperties("jwt")
 data class JwtProperties(
-    val key:String,
-    val accessTokenExpiration:Long,
-    val refreshTokenExpiration:Long
+    val key: String,
+    val accessTokenExpiration: Long,
+    val refreshTokenExpiration: Long
 )
 
-data class JwtResponse(
-    val username: String,
-    val role:String
+data class ClinicCreateRequest(
+    val name: String,
+    val address: String,
+    @field:Pattern(
+        regexp = "^\\+998[0-9]{9}$",
+        message = "PHONE_NUMBER_ERROR"
+    )
+    val phone: String,
+    val description: String,
+    @field:Min(4, message = "SIZE_ERROR_MIN")
+    val openingHours: Long,
+    @field:Min(4, message = "SIZE_ERROR_MIN")
+    val closingHours: Long,
+    @field:Min(6, message = "SIZE_ERROR_MIN")
+    val createdYear:Long
+){
+    fun toEntity() : ClinicEntity{
+        val openHours = DateUtils.toHour(openingHours)
+        val closeHour = DateUtils.toHour(closingHours)
+        val creatYear = DateUtils.toYearMonthDate(createdYear)
+        if(closeHour.isAfter(openHours)) throw BeforeTimeException()
+
+        if(creatYear.isBefore(LocalDate.now())) throw BeforeTimeException()
+
+        return ClinicEntity(name,address,phone,description,openHours,closeHour,creatYear)
+    }
+
+}
+
+data class ClinicUpdateRequest(
+    val name: String?,
+    val address: String?,
+    @field:Pattern(
+        regexp = "^\\+998[0-9]{9}$",
+        message = "PHONE_NUMBER_ERROR"
+    )
+    val phone: String?,
+    val description: String?,
 )
+
+data class ClinicResponse(
+    val id:Long,
+    val name: String,
+    val address: String,
+    val phone: String,
+    val description: String,
+    val openingHours: LocalTime,
+    val closingHours: LocalTime,
+    val createdYear:LocalDate
+){
+    companion object {
+        fun toResponse(clinic: ClinicEntity):ClinicResponse{
+            clinic.run {
+                return ClinicResponse(id!!,name,address,phone,description,openingHours,closingHours,createdYear)
+            }
+        }
+    }
+}
+
+/*data class CardResponse(
+    val id:Long,
+    val patientName:String,
+    val balance:BigDecimal,
+    val cardNumber:String,
+    val status:CardStatus
+)*/
 

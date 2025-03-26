@@ -1,11 +1,11 @@
 jwt:
-  key: "salomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesansalomdunyoqalesan"
+  key: "qpdne62dnnjxnsvs45xsgjdknmxgbm902xs##bdhx23gdhs79892nsmxs72nxbdbd55dv3#kmkmxdkddknwyjnjnsjjsnjs"
   access-token-expiration: 3600000
   refresh-token-expiration: 864000000
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/clinicdb
+    url: jdbc:postgresql://localhost:5432/clinicnewdb
     username: clinic
     password: 12345678
     driver-class-name: org.postgresql.Driver

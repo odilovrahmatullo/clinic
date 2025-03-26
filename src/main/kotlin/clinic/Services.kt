@@ -2,7 +2,6 @@ package clinic
 
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
-import io.jsonwebtoken.SignatureAlgorithm
 import io.jsonwebtoken.security.Keys
 import jakarta.transaction.Transactional
 import org.springframework.data.domain.Page
@@ -14,6 +13,7 @@ import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
+import java.security.SecureRandom
 import java.time.LocalDate
 import java.util.Date
 
@@ -41,41 +41,52 @@ class TokenService(
             .compact()
     }
 
-    fun extractUsername(token: String): String? = getAllClaims(token)
-        .subject
+    fun extractUsername(token: String): String? {
+        return try {
+            getAllClaims(token).subject
+        } catch (e: Exception) {
+            throw JwtTokenException()
+        }
+    }
 
-    fun isExpired(token: String): Boolean = getAllClaims(token)
-        .expiration
-        .before(Date(System.currentTimeMillis()))
+    fun isExpired(token: String): Boolean {
+        try {
+            return getAllClaims(token)
+                .expiration
+                .before(Date(System.currentTimeMillis()))
+        } catch (e: Exception) {
+            throw JwtTokenException()
+        }
+    }
 
     fun isValid(token: String, userDetails: UserDetails): Boolean {
         val email = extractUsername(token)
 
         return userDetails.username == email && !isExpired(token)
-
-
     }
 
     private fun getAllClaims(token: String): Claims {
-        val parser = Jwts.parser()
-            .verifyWith(secretKey)
-            .build()
-
-        return parser
-            .parseSignedClaims(token)
-            .payload
+        return try {
+            val parser = Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+            parser.parseSignedClaims(token).payload
+        } catch (e: Exception) {
+            throw JwtTokenException()
+        }
     }
 }
 
 @Service
 class CustomUserDetailsService(
-    private val employeeRepository: EmployeeRepository
+    private val userRepository: UserRepository
 ) : UserDetailsService {
+
     override fun loadUserByUsername(username: String): UserDetails {
-        return employeeRepository.findByUsernameAndDeletedFalse(username)
-            ?: throw AuthenticationException()
+        return userRepository.findByUsernameAndDeletedFalse(username) ?: throw AuthenticationException()
     }
 }
+
 
 @Service
 class AuthenticationService(
@@ -96,7 +107,7 @@ class AuthenticationService(
 
         val user = userDetailsService.loadUserByUsername(authRequest.username)
 
-        val employee = user as Employee
+        val employee = user as User
 
         val accessToken = generateAccessToken(user)
 
@@ -136,161 +147,111 @@ class AuthenticationService(
 
     }
 
+
 }
 
-interface PatientService {
-    fun create(request: PatientCreateRequest)
-    fun getAll(pageable: Pageable): Page<PatientResponse>
-    fun getOne(id: Long): PatientResponse
+interface UserService {
+    fun createEmployee(request: UserCreateRequest)
+    fun createPatient(request: PatientCreateRequest)
+    fun getAll(pageable: Pageable, search: String, role: Role?): Page<UserResponse>
+    fun getOne(id: Long): UserResponse
     fun delete(id: Long)
-    fun getPatient(id: Long): Patient
-    fun update(id: Long, request: PatientUpdateRequest)
-    fun updateBalance(id: Long, money: BigDecimal)
-    fun reduceBalance(patient: Patient,reducedMoney:BigDecimal)
+    fun getUser(id: Long): User
+    fun update(id: Long, request: UserUpdateRequest)
 }
 
-// todo security qoshish kerak
+
 @Service
-class PatientServiceImpl(private val patientRepository: PatientRepository) : PatientService {
-    override fun create(request: PatientCreateRequest) {
+class UserServiceImpl(
+    private val userRepository: UserRepository,
+    private val encoder: PasswordEncoder
+) : UserService {
+
+    override fun createEmployee(request: UserCreateRequest) {
+        createUser(request)
+    }
+
+    override fun createPatient(request: PatientCreateRequest) {
+        createUser(request)
+    }
+
+
+    private fun <T : CreateUserRequest> createUser(request: T) {
         request.run {
-            if (patientRepository.existsByUsernameAndDeletedFalse(username))
-                throw PatientAlreadyExistException()
-            patientRepository.save(toEntity(DateUtils.toYearMonthDate(dateOfBirth)))
+            if (userRepository.existsByUsername(username))
+                throw UserAlreadyExistException()
+            userRepository.save(toEntity(encoder.encode(password)))
         }
     }
 
-    override fun getAll(pageable: Pageable): Page<PatientResponse> {
-        val pages = patientRepository.findAllNotDeleted(pageable)
+
+    override fun getAll(pageable: Pageable, search: String, role: Role?): Page<UserResponse> {
+        val pages = userRepository.getUsers(pageable, search, role)
         return pages.map {
-            PatientResponse.toResponse(it)
+            UserResponse.toResponse(it)
         }
     }
 
 
-    override fun getOne(id: Long): PatientResponse {
-        return PatientResponse.toResponse(getPatient(id))
+    override fun getOne(id: Long): UserResponse {
+        return UserResponse.toResponse(getUser(id))
     }
 
     @Transactional
     override fun delete(id: Long) {
-        patientRepository.trash(id) ?: throw PatientNotFoundException()
+        userRepository.trash(id) ?: throw UserNotFoundException()
     }
 
-    override fun getPatient(id: Long): Patient =
-        patientRepository.findByIdAndDeletedFalse(id) ?: throw PatientNotFoundException()
+    override fun getUser(id: Long): User =
+        userRepository.findByIdAndDeletedFalse(id) ?: throw UserNotFoundException()
 
     @Transactional
-    override fun update(id: Long, request: PatientUpdateRequest) {
-        val patient = getPatient(id)
+    override fun update(id: Long, request: UserUpdateRequest) {
+        val patient = getUser(id)
         request.run {
             fullName?.let {
                 patient.fullName = it
             }
             username?.let {
-                if (patientRepository.existsByUsernameAndIdNotAndDeletedFalse(username, id))
-                    throw PatientAlreadyExistException()
+                if (userRepository.existsByUsernameAndIdNot(username, id))
+                    throw UserAlreadyExistException()
                 patient.username = it
             }
         }
 
-        patientRepository.save(patient)
-    }
-
-    override fun updateBalance(id: Long, money: BigDecimal) {
-        val patient = getPatient(id)
-        patient.balance += money
-        patientRepository.save(patient)
-    }
-
-    override fun reduceBalance(patient: Patient, reducedMoney: BigDecimal) {
-        patient.balance-=reducedMoney
-        patientRepository.save(patient)
+        userRepository.save(patient)
     }
 }
 
-interface EmployeeService {
-    fun create(request: EmployeeCreateRequest)
-    fun getAll(pageable: Pageable): Page<EmployeeResponse>
-    fun getOne(id: Long): EmployeeResponse
+interface ItemService {
+    fun create(request: ItemCreateRequest)
+    fun getAll(pageable: Pageable, search: String): Page<ItemResponse>
+    fun getOne(id: Long): ItemResponse
     fun delete(id: Long)
-    fun getEmployee(id: Long): Employee
-    fun update(id: Long, request: EmployeeUpdateRequest)
+    fun update(id: Long, request: ItemUpdateRequest)
+    fun getItem(id: Long): Item
 }
 
 @Service
-class EmployeeServiceImpl(
-    private val encoder: PasswordEncoder,
-    private val employeeRepository: EmployeeRepository
-) : EmployeeService {
-    override fun create(request: EmployeeCreateRequest) {
-        request.run {
-            employeeRepository.save(toEntity(encoder.encode(password)))
-        }
-    }
-
-    //todo search va filter qoshish
-    override fun getAll(pageable: Pageable): Page<EmployeeResponse> {
-        val pages: Page<Employee> = employeeRepository.findAllNotDeleted(pageable)
-        return pages.map {
-            EmployeeResponse.toResponse(it)
-        }
-    }
-
-    override fun getOne(id: Long): EmployeeResponse {
-        return EmployeeResponse.toResponse(getEmployee(id))
-    }
-
-    override fun delete(id: Long) {
-        employeeRepository.trash(id) ?: throw EmployeeNotFoundException()
-    }
-
-    override fun getEmployee(id: Long): Employee =
-        employeeRepository.findByIdAndDeletedFalse(id) ?: throw EmployeeNotFoundException()
-
-    override fun update(id: Long, request: EmployeeUpdateRequest) {
-        val employee = getEmployee(id)
-
-        request.run {
-            fullName?.let {
-                employee.fullName = it
-            }
-        }
-        employeeRepository.save(employee)
-    }
-
-}
-
-
-interface Services {
-    fun create(request: ServiceCreateRequest)
-    fun getAll(pageable: Pageable): Page<ServiceResponse>
-    fun getOne(id: Long): ServiceResponse
-    fun delete(id: Long)
-    fun update(id: Long, request: ServiceUpdateRequest)
-    fun getService(id: Long): clinic.Service
-}
-
-@Service
-class ServicesImpl(private val serviceRepository: ServiceRepository) : Services {
-    override fun create(request: ServiceCreateRequest) {
+class ItemServiceImpl(private val serviceRepository: ItemRepository) : ItemService {
+    override fun create(request: ItemCreateRequest) {
         request.run {
             if (serviceRepository.existsByNameAndDeletedFalse(name)) throw ServiceAlreadyExistException()
             serviceRepository.save(toEntity(DateUtils.toDay(duration)))
         }
     }
 
-
-    override fun getAll(pageable: Pageable): Page<ServiceResponse> {
-        val pages = serviceRepository.findAllNotDeleted(pageable)
+    override fun getAll(pageable: Pageable, search: String): Page<ItemResponse> {
+        val pages = serviceRepository.findAllAsSearch(pageable, search)
         return pages.map {
-            ServiceResponse.toResponse(it)
+            ItemResponse.toResponse(it)
         }
     }
 
-    override fun getOne(id: Long): ServiceResponse {
-        val service = getService(id)
-        return ServiceResponse.toResponse(service)
+
+    override fun getOne(id: Long): ItemResponse {
+        val service = getItem(id)
+        return ItemResponse.toResponse(service)
     }
 
     @Transactional
@@ -299,8 +260,8 @@ class ServicesImpl(private val serviceRepository: ServiceRepository) : Services 
     }
 
     @Transactional
-    override fun update(id: Long, request: ServiceUpdateRequest) {
-        val service = getService(id)
+    override fun update(id: Long, request: ItemUpdateRequest) {
+        val service = getItem(id)
 
         request.run {
             name?.let {
@@ -323,7 +284,7 @@ class ServicesImpl(private val serviceRepository: ServiceRepository) : Services 
         }
     }
 
-    override fun getService(id: Long): clinic.Service =
+    override fun getItem(id: Long): Item =
         serviceRepository.findByIdAndDeletedFalse(id) ?: throw ServiceNotFoundException()
 
 }
@@ -342,14 +303,16 @@ interface DoctorScheduleService {
 @Service
 class DoctorScheduleServiceImpl(
     private val repository: DoctorScheduleRepository,
-    private val employeeService: EmployeeService
+    private val userService: UserService,
+    private val springSecurityUtil: SpringSecurityUtil
 ) : DoctorScheduleService {
 
     override fun create(request: DoctorScheduleCreateRequest) {
         request.run {
-            val doctor = employeeService.getEmployee(request.doctorId)
-            if (doctor.role != Role.DOCTOR) throw NoHavePermission()
-            repository.save(toEntity(doctor))
+            val user = springSecurityUtil.getCurrentUser() as User
+            val date = DateUtils.toYearMonthDate(dayOfWeek)
+            if (repository.existsByDate(date)) throw DayIsNotAvailable()
+            repository.save(toEntity(user, date))
         }
 
     }
@@ -358,7 +321,7 @@ class DoctorScheduleServiceImpl(
     override fun getAll(pageable: Pageable): Page<DoctorScheduleResponse> {
         val pages = repository.findAllNotDeleted(pageable)
         return pages.map {
-            DoctorScheduleResponse.toResponse(it, it.dayOfWeek.dayOfWeek.toString())
+            DoctorScheduleResponse.toResponse(it, it.date.dayOfWeek.toString())
         }
     }
 
@@ -368,7 +331,7 @@ class DoctorScheduleServiceImpl(
         doctorSchedule.run {
             return DoctorScheduleResponse.toResponse(
                 doctorSchedule,
-                dayOfWeek.dayOfWeek.toString()
+                date.dayOfWeek.toString()
             )
         }
     }
@@ -384,7 +347,7 @@ class DoctorScheduleServiceImpl(
 
         request.run {
             dayOfWeek?.let {
-                doctorSchedule.dayOfWeek = DateUtils.toYearMonthDate(it)
+                doctorSchedule.date = DateUtils.toYearMonthDate(it)
             }
 
             startTime?.let {
@@ -405,7 +368,7 @@ class DoctorScheduleServiceImpl(
 
     @Transactional
     override fun getEmptyDoctorSchedule(id: Long, fromDate: LocalDate): DoctorSchedule {
-        val doctor = employeeService.getEmployee(id)
+        val doctor = userService.getUser(id)
         if (doctor.role != Role.DOCTOR) throw NoHavePermission()
         val emptyDoctor =
             repository.getEmptyDoctor(id, fromDate, DoctorStatus.NO_PATIENT) ?: throw DoctorScheduleNotAvailable()
@@ -422,64 +385,64 @@ class DoctorScheduleServiceImpl(
 
 }
 
-interface CardServiceC {
-    fun create(request: CardRequest)
-    fun getCard(id: Long): Card
-    fun updateCardService(id: Long, doctorId: Long, cardRequest: CardUpdateRequest)
+interface CardItemService {
+    fun create(request: CardItemRequest)
+    fun getCardItem(id: Long): CardItem
+    fun updateCardItem(id: Long, cardRequest: CardItemUpdateRequest)
     fun getPatientServices(patientId: Long): CardResponse
 }
 
 @Service
-class CardImpl(
+class CardItemImpl(
     private val cardRepository: CardRepository,
-    private val patientService: PatientService,
+    private val patientService: UserService,
     private val doctorScheduleService: DoctorScheduleService,
-    private val services: Services,
-    private val cardServiceRepository: CardServiceRepository,
-    private val employeeService: EmployeeService,
-    private val paymentService: PaymentService
-) : CardServiceC {
-
+    private val services: ItemService,
+    private val cardService: CardService,
+    private val cardItemRepository: CardItemRepository,
+    private val springSecurityUtil: SpringSecurityUtil,
+    private val paymentRepository: PaymentRepository
+) : CardItemService {
     @Transactional
-    override fun create(request: CardRequest) {
+    override fun create(request: CardItemRequest) {
         request.run {
-            val patient = patientService.getPatient(patientId)
-            val card = cardRepository.findByPatientAndDeletedFalse(patient) ?: cardRepository.save(
-                Card(
-                    patient,
-                    BigDecimal.ZERO,
-                    CardStatus.ACTIVE
-                )
-            )
-
+            val card = cardService.getCard(springSecurityUtil.getCurrentUser() as User)
 
             val fromEDate = DateUtils.toYearMonthDate(request.fromDate)
+
             val doctor = doctorScheduleService.getEmptyDoctorSchedule(doctorId, fromEDate)
-            val cardService = services.getService(serviceId)
+
+            val cardService = services.getItem(serviceId)
+
             val expectedDate = fromEDate.plusDays(DateUtils.toYearMonthDate(cardService.duration).dayOfMonth.toLong())
-            cardServiceRepository.save(
-                CardService(
+
+            cardItemRepository.save(
+                CardItem(
                     card,
                     cardService,
                     doctor.doctor,
                     DateUtils.toYearMonthDate(fromDate),
                     expectedDate,
-                    CardServiceStatus.IN_PROCESS
+                    CardItemStatus.IN_PROCESS
                 )
             )
             doctorScheduleService.changeDoctorStatus(doctor, DoctorStatus.HAS_PATIENT)
         }
     }
 
-    override fun getCard(id: Long): Card = cardRepository.findByIdAndDeletedFalse(id) ?: throw CardNotFound()
+    override fun getCardItem(id: Long): CardItem =
+        cardItemRepository.findByIdAndDeletedFalse(id) ?: throw CardServiceNotFoundException()
 
     @Transactional
-    override fun updateCardService(id: Long, doctorId: Long, cardRequest: CardUpdateRequest) {
-        val employee = employeeService.getEmployee(doctorId)
-        val cardService = cardServiceRepository.findByIdAndDeletedFalse(id) ?: throw CardServiceNotFoundException()
+    override fun updateCardItem(id: Long, cardRequest: CardItemUpdateRequest) {
 
-        if (cardService.doctor.id != doctorId && employee.role != Role.DIRECTOR)
+        val doctor = springSecurityUtil.getCurrentUser() as User
+
+        val cardService = getCardItem(id)
+
+        if (cardService.doctor.id != doctor.id)
             throw NoHavePermission()
+
         var fromUpdatedDate = cardService.fromDate
         cardRequest.run {
             fromDate?.let {
@@ -488,7 +451,7 @@ class CardImpl(
                 fromUpdatedDate = temp
             }
             serviceId?.let {
-                cardService.service = services.getService(it)
+                cardService.item = services.getItem(it)
             }
             finishDate?.let {
                 val finishTime = DateUtils.toYearMonthDate(finishDate)
@@ -496,34 +459,48 @@ class CardImpl(
                     throw BeforeTimeException()
                 }
                 cardService.toDate = finishTime
-                cardService.status = CardServiceStatus.DONE
+                cardService.status = CardItemStatus.DONE
             }
 
         }
 
-        cardServiceRepository.save(cardService)
+        cardItemRepository.save(cardService)
     }
 
     override fun getPatientServices(patientId: Long): CardResponse {
-        val patient = patientService.getPatient(patientId)
+        val patient = patientService.getUser(patientId)
         val card = cardRepository.findByPatientAndDeletedFalse(patient) ?: throw CardNotFound()
-        val cardServicesOfPatient = cardServiceRepository.findByCardAndDeletedFalse(card)
-        val cardServiceResponses: List<CardServiceResponse> = cardServicesOfPatient.map {
+        val cardServicesOfPatient = cardItemRepository.findByCardAndDeletedFalse(card)
+
+        val cardServiceResponses: List<CardItemResponse> = cardServicesOfPatient.map {
             map(it)
         }
-        val totalAmount = paymentService.getTotalAmountOfPatient(patient)
-        return CardResponse(card.id!!, PatientResponse.toResponse(patient), totalAmount, cardServiceResponses)
+
+        val totalAmount = cardServiceResponses.sumOf { it.paidMoney }
+        return CardResponse(
+            card.id!!,
+            UserResponse.toResponse(patient),
+            card.cardNumber,
+            card.totalAmount,
+            card.status,
+            cardServiceResponses,
+            totalPaidAmount = totalAmount
+        )
     }
 
-    private fun map(cardService: CardService): CardServiceResponse {
-        val serviceResponse = ServiceResponse.toResponse(cardService.service)
+    private fun map(cardItem: CardItem): CardItemResponse {
+        val serviceResponse = ItemResponse.toResponse(cardItem.item)
+        var money = BigDecimal.ZERO
+        val payment = paymentRepository.findByCardItemAndDeletedFalse(cardItem)
+        if (payment != null) money = payment.paidAmount
 
-        return CardServiceResponse(
+        return CardItemResponse(
             serviceResponse,
-            cardService.doctor.fullName,
-            cardService.fromDate.toString(),
-            cardService.toDate.toString(),
-            cardService.status
+            cardItem.doctor.fullName,
+            cardItem.fromDate.toString(),
+            cardItem.toDate.toString(),
+            cardItem.status,
+            money
         )
     }
 }
@@ -531,38 +508,55 @@ class CardImpl(
 interface PaymentService {
     fun create(request: PaymentCreateRequest)
     fun getDetailPaymentsOfPatient(patientId: Long): PaymentResponseDetail
-    fun getTotalAmountOfPatient(patient: Patient): BigDecimal
 }
 
 @Service
 class PaymentServiceImpl(
     private val paymentRepository: PaymentRepository,
-    private val cardServiceRepository: CardServiceRepository,
-    private val patientService: PatientService,
+    private val cardService: CardService,
+    private val patientService: UserService,
+    private val cardItemService: CardItemService
 ) : PaymentService {
     override fun create(request: PaymentCreateRequest) {
         request.run {
-            val cardService =
-                cardServiceRepository.findByIdAndDeletedFalse(cardServiceId) ?: throw CardServiceNotFoundException()
 
-            val userMoney = cardService.card.patient.balance
+            val cardItem = cardItemService.getCardItem(cardServiceId)
+
+            val payment = paymentRepository.findByCardItemAndDeletedFalse(cardItem)
+
+            val userMoney = cardItem.card.totalAmount
 
             if (userMoney < paidAmount) throw BalanceNotEnoughException()
 
-            paymentRepository.save(
-                Payment(
-                    cardService, cardService.card.patient, paidAmount,
-                    PaymentMethod.valueOf(paymentMethod), PaymentStatus.PAID
-                )
-            )
-            patientService.reduceBalance(cardService.card.patient, paidAmount)
+
+            if (payment != null) {
+                if (payment.paymentStatus == PaymentStatus.PAID) throw ServiceFinishedAlreadyException()
+                if (paidAmount > cardItem.item.price - payment.paidAmount) throw MuchMoneyDontNeedException()
+                val temp:BigDecimal = payment.paidAmount + paidAmount
+                payment.paidAmount = temp
+                if (temp == cardItem.item.price){
+                    payment.paymentStatus = PaymentStatus.PAID
+                }else {
+                    payment.paymentStatus = PaymentStatus.NOT_PAID
+                }
+                paymentRepository.save(payment)
+            } else {
+                if (paidAmount > cardItem.item.price) throw MuchMoneyDontNeedException()
+                val status = if (paidAmount == cardItem.item.price) PaymentStatus.PAID else PaymentStatus.NOT_PAID
+                val newPayment =
+                    Payment(cardItem, cardItem.card.patient, paidAmount, PaymentMethod.valueOf(paymentMethod), status)
+
+                paymentRepository.save(newPayment)
+            }
+
+            cardService.reduceMoney(cardItem.card.patient, paidAmount)
         }
     }
 
     override fun getDetailPaymentsOfPatient(patientId: Long): PaymentResponseDetail {
-        val patient = patientService.getPatient(patientId)
+        val patient = patientService.getUser(patientId)
 
-        val payments: List<Payment> = paymentRepository.findAllByPatientAndDeletedFalse(patient)
+        val payments: List<Payment> = paymentRepository.findAllByUserAndDeletedFalse(patient)
         var totalMoney = BigDecimal.ZERO
         val paymentsList = mutableListOf<PaymentResponse>()
 
@@ -575,11 +569,122 @@ class PaymentServiceImpl(
 
     }
 
+}
 
-    override fun getTotalAmountOfPatient(patient: Patient): BigDecimal {
-        return paymentRepository.getTotalAmountOfUser(patient)
+interface ClinicService {
+    fun create(request: ClinicCreateRequest)
+    fun getAll(pageable: Pageable, search: String): Page<ClinicResponse>
+    fun getOne(id: Long): ClinicResponse
+    fun delete(id: Long)
+    fun getClinic(id: Long): ClinicEntity
+    fun update(id: Long, request: ClinicUpdateRequest)
+}
+
+@Service
+class ClinicServiceImpl(
+    private val clinicRepository: ClinicRepository
+) : ClinicService {
+    override fun create(request: ClinicCreateRequest) {
+        request.run {
+            clinicRepository.save(toEntity())
+        }
     }
 
+    override fun getAll(pageable: Pageable, search: String): Page<ClinicResponse> {
+        val pages: Page<ClinicEntity> = clinicRepository.getPages(pageable, search)
+        return pages.map {
+            ClinicResponse.toResponse(it)
+        }
+    }
 
+    override fun getOne(id: Long): ClinicResponse {
+        return ClinicResponse.toResponse(getClinic(id))
+    }
+
+    @Transactional
+    override fun delete(id: Long) {
+        clinicRepository.trash(id) ?: throw ClinicNotFoundException()
+    }
+
+    override fun getClinic(id: Long): ClinicEntity =
+        clinicRepository.findByIdAndDeletedFalse(id) ?: throw ClinicNotFoundException()
+
+    @Transactional
+    override fun update(id: Long, request: ClinicUpdateRequest) {
+        val clinic = getClinic(id)
+
+        request.run {
+            name?.let {
+                clinic.name = it
+            }
+            description?.let {
+                clinic.description = it
+            }
+            address?.let {
+                clinic.address = it
+            }
+            phone?.let {
+                clinic.phone = it
+            }
+
+            clinicRepository.save(clinic)
+        }
+    }
+
+}
+
+interface CardService {
+    fun create()
+    fun getCard(patient: User): Card
+    fun payMoneyToBalance(money: BigDecimal)
+    fun reduceMoney(patient: User, money: BigDecimal)
+}
+
+@Service
+class CardServiceImpl(
+    private val cardRepository: CardRepository,
+    private val springSecurityUtil: SpringSecurityUtil
+) : CardService {
+    override fun create() {
+        val patient = springSecurityUtil.getCurrentUser() as User
+        if (cardRepository.existsByPatientAndDeletedFalse(patient)) throw UserHasCard()
+        val cardNumber = generateUniqueCardNumber()
+
+        cardRepository.save(Card(patient, BigDecimal.ZERO, CardStatus.ACTIVE, cardNumber))
+    }
+
+    private fun generateCardNumber(): String {
+        val random = SecureRandom()
+        val min = 1_0000_0000_0000_0000L
+        val max = 9_9999_9999_9999_9999L
+
+        val cardNumber = random.nextLong(max - min) + min
+
+        return cardNumber.toString()
+    }
+
+    private fun generateUniqueCardNumber(): String {
+        var cardNumber: String
+        do {
+            cardNumber = generateCardNumber()
+        } while (cardRepository.existsByCardNumber(cardNumber))
+
+        return cardNumber
+    }
+
+    override fun getCard(patient: User): Card =
+        cardRepository.findByPatientAndDeletedFalse(patient) ?: throw CardNotFound()
+
+    override fun payMoneyToBalance(money: BigDecimal) {
+        val card = getCard(springSecurityUtil.getCurrentUser() as User)
+        card.totalAmount += money
+        cardRepository.save(card)
+    }
+
+    override fun reduceMoney(patient: User, money: BigDecimal) {
+        val card = getCard(patient)
+        card.totalAmount -= money
+        cardRepository.save(card)
+    }
 }
 

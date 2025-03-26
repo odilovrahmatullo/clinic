@@ -1,6 +1,5 @@
 package clinic
 
-import ch.qos.logback.core.net.server.Client
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -9,15 +8,13 @@ import org.springframework.context.support.ResourceBundleMessageSource
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException
-import org.springframework.security.core.userdetails.UsernameNotFoundException
 import org.springframework.security.web.access.AccessDeniedHandler
 import org.springframework.stereotype.Component
 import org.springframework.validation.BindException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
-import org.springframework.web.client.HttpClientErrorException.Forbidden
-import java.util.*
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import java.util.stream.Collectors
 
 
@@ -43,7 +40,7 @@ class ExceptionHandler(
         val message = errorMessageSource.getMessage(
             errorCode.toString(),
             null,
-            Locale(LocaleContextHolder.getLocale().language)
+           LocaleContextHolder.getLocale()
         )
         return ResponseEntity.badRequest().body(
             ValidationErrorMessage(
@@ -60,7 +57,7 @@ class ExceptionHandler(
         val message = errorMessageSource.getMessage(
             errorCode.toString(),
             null,
-            Locale(LocaleContextHolder.getLocale().language)
+           LocaleContextHolder.getLocale()
         )
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
             .body(BaseMessage(errorCode.code, message))
@@ -71,12 +68,23 @@ class ExceptionHandler(
         val errorCode = ErrorCode.LOGIN_ERROR_EXCEPTION
         val message = errorMessageSource.getMessage(
             errorCode.toString(),
-            null,
-            Locale(LocaleContextHolder.getLocale().language)
+            null, LocaleContextHolder.getLocale()
         )
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
             .body(BaseMessage(errorCode.code, message))
     }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException::class)
+    fun handleEnumMismatchException(ex: MethodArgumentTypeMismatchException): ResponseEntity<BaseMessage> {
+            val errorCode = ErrorCode.ENUM_TYPE_ERROR
+            val message = errorMessageSource.getMessage(
+                errorCode.toString(),
+                null,
+                LocaleContextHolder.getLocale() )
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(BaseMessage(errorCode.code,message))
+    }
+
 
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
@@ -123,7 +131,7 @@ sealed class ClinicException(message: String? = null) : RuntimeException(message
             errorMessageSource.getMessage(
                 errorType().toString(),
                 getErrorMessageArguments(),
-                Locale(LocaleContextHolder.getLocale().language)
+               LocaleContextHolder.getLocale()
             )
         )
     }
@@ -142,7 +150,7 @@ class CustomAccessDeniedHandler(
         val message = errorMessageSource.getMessage(
             errorCode.toString(),
             null,
-            Locale(LocaleContextHolder.getLocale().language)
+           LocaleContextHolder.getLocale()
         )
 
         val responseBody = BaseMessage(errorCode.code, message)
@@ -157,16 +165,12 @@ class CustomAccessDeniedHandler(
 
 data class ValidationErrorMessage(val code: Int, val message: String, val fields: Map<String, Any?>)
 
-class PatientAlreadyExistException : ClinicException() {
-    override fun errorType() = ErrorCode.PATIENT_ALREADY_EXIST
+class UserAlreadyExistException : ClinicException() {
+    override fun errorType() = ErrorCode.USER_ALREADY_EXIST
 }
 
-class PatientNotFoundException : ClinicException() {
-    override fun errorType() = ErrorCode.PATIENT_NOT_FOUND
-}
-
-class EmployeeNotFoundException : ClinicException() {
-    override fun errorType() = ErrorCode.EMPLOYEE_NOT_FOUND
+class UserNotFoundException : ClinicException() {
+    override fun errorType() = ErrorCode.USER_NOT_FOUND
 }
 
 class ServiceNotFoundException : ClinicException() {
@@ -215,4 +219,25 @@ class ForbiddenException : ClinicException(){
 }
 class EmployeeRoleNotExistException : ClinicException(){
     override fun errorType () = ErrorCode.EMPLOYEE_HAS_NO_ROLE
+}
+class ClinicNotFoundException:ClinicException(){
+    override fun errorType() = ErrorCode.CLINIC_NOT_FOUND
+}
+
+class DayIsNotAvailable:ClinicException(){
+    override fun errorType() =  ErrorCode.DAY_IS_NOT_AVAILABLE
+}
+
+class UserHasCard() : ClinicException(){
+    override fun errorType() = ErrorCode.USER_HAS_CARD
+}
+
+class ServiceFinishedAlreadyException() : ClinicException(){
+    override fun errorType() = ErrorCode.SERVICE_FINISHED
+}
+class JwtTokenException():ClinicException(){
+    override fun errorType() = ErrorCode.JWT_TOKEN_EXCEPTION
+}
+class MuchMoneyDontNeedException():ClinicException(){
+    override fun errorType() = ErrorCode.MUCH_MONEY_DONT_NEED
 }

@@ -57,54 +57,75 @@ class BaseRepositoryImpl<T : BaseEntity>(
 }
 
 @Repository
-interface PatientRepository : BaseRepository<Patient> {
-    fun existsByUsernameAndDeletedFalse(fullName: String): Boolean
+interface UserRepository : BaseRepository<User> {
+    fun existsByUsername(fullName: String): Boolean
 
-    fun existsByUsernameAndIdNotAndDeletedFalse(fullName: String, id: Long): Boolean
+    fun existsByUsernameAndIdNot(fullName: String, id: Long): Boolean
+
+    @Query("FROM User p WHERE (LOWER(p.fullName) LIKE LOWER(CONCAT('%', :search, '%'))) AND (:role IS NULL OR p.role = :role)")
+    fun getUsers(
+        pageable: Pageable,
+        @Param("search") search: String?,
+        @Param("role") role: Role?
+    ): Page<User>
+
+    fun findByUsernameAndDeletedFalse(username: String): User?
+    fun existsByRoleAndDeletedFalse(owner: Role): Boolean
 }
 
-@Repository
-interface EmployeeRepository : BaseRepository<Employee>{
-    fun findByUsernameAndDeletedFalse(username: String) : Employee?
-}
 
 @Repository
-interface ServiceRepository : BaseRepository<Service> {
+interface ItemRepository : BaseRepository<Item> {
     fun existsByNameAndDeletedFalse(name: String): Boolean
 
     fun existsByNameAndIdNotAndDeletedFalse(name: String, id: Long): Boolean
+
+    @Query("SELECT s FROM Item as s where (lower(s.name) Like Lower(concat('%', :search,'%') )) and s.deleted = false ")
+    fun findAllAsSearch(pageable: Pageable, @Param("search") search: String): Page<Item>
 }
 
 interface DoctorScheduleRepository : BaseRepository<DoctorSchedule> {
-    @Query("""SELECT ds FROM DoctorSchedule ds 
+    @Query(
+        """SELECT ds FROM DoctorSchedule ds 
         where ds.doctor.id = :id 
         and ds.status = :noPatient 
-        and ds.dayOfWeek = :fromDate
+        and ds.date = :fromDate
         and  ds.deleted = false
-        """)
+        """
+    )
     fun getEmptyDoctor(
         @Param("id") id: Long,
-        @Param("fromDate")fromDate: LocalDate,
-        @Param("noPatient")noPatient: DoctorStatus
+        @Param("fromDate") fromDate: LocalDate,
+        @Param("noPatient") noPatient: DoctorStatus
     ): DoctorSchedule?
+
+    fun existsByDate(date: LocalDate): Boolean
 }
 
 interface CardRepository : BaseRepository<Card> {
-    fun findByPatientAndDeletedFalse(patient: Patient): Card?
+    fun findByPatientAndDeletedFalse(patient: User): Card?
+    fun existsByCardNumber(cardNumber: String): Boolean
+    fun existsByPatientAndDeletedFalse(patient: User): Boolean
 }
 
-interface CardServiceRepository : BaseRepository<CardService> {
-    fun findByCardAndDeletedFalse(card: Card?): List<CardService>
+interface CardItemRepository : BaseRepository<CardItem> {
+    fun findByCardAndDeletedFalse(card: Card?): List<CardItem>
 }
 
 interface PaymentRepository : BaseRepository<Payment> {
-    fun findAllByPatientAndDeletedFalse(patient: Patient): List<Payment>
+    @Query("SELECT p FROM Payment p WHERE p.patient = :patient AND p.deleted = false")
+    fun findAllByUserAndDeletedFalse(patient: User): List<Payment>
 
-    @Query("SELECT SUM(p.paidAmount) FROM Payment as p where p.patient = ?1 and p.deleted = false ")
-    fun getTotalAmountOfUser(patient: Patient): BigDecimal
+    fun findByCardItemAndDeletedFalse(cardItem: CardItem): Payment?
 }
 
 @Repository
-interface RefreshTokenRepository : JpaRepository<RefreshToken,Long> {
+interface RefreshTokenRepository : JpaRepository<RefreshToken, Long> {
     fun findRefreshTokenByRefreshTokenAndDeletedFalse(token: String): RefreshToken
+}
+
+interface ClinicRepository:BaseRepository<ClinicEntity> {
+
+    @Query("SELECT s FROM ClinicEntity as s where (lower(s.name) Like Lower(concat('%', :search,'%') )) and s.deleted = false ")
+    fun getPages(pageable: Pageable, search: String): Page<ClinicEntity>
 }

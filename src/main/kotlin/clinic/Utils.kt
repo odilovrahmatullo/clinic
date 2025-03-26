@@ -3,8 +3,8 @@ package clinic
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.core.userdetails.UserDetails
+import org.springframework.stereotype.Component
 import java.time.*
-import java.util.*
 import java.util.concurrent.TimeUnit
 
 class DateUtils {
@@ -30,8 +30,8 @@ class DateUtils {
     }
 }
 
+@Component
 class SpringSecurityUtil {
-    companion object {
         private fun getAuthentication(): Authentication {
             val authentication = SecurityContextHolder.getContext().authentication
             if (authentication == null || !authentication.isAuthenticated || authentication.principal == "anonymousUser") {
@@ -45,7 +45,6 @@ class SpringSecurityUtil {
         }
 
         fun getCurrentUserId(): Long {
-            return (getAuthentication().principal as Employee).getId()
+            return (getAuthentication().principal as User).getId()
         }
-    }
 }

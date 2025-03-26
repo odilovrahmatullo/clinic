@@ -8,7 +8,6 @@ import org.springframework.data.annotation.CreatedDate
 import org.springframework.data.annotation.LastModifiedBy
 import org.springframework.data.annotation.LastModifiedDate
 import org.springframework.data.jpa.domain.support.AuditingEntityListener
-import org.springframework.security.core.GrantedAuthority
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.userdetails.UserDetails
 import java.math.BigDecimal
@@ -20,47 +19,41 @@ import java.util.*
 @MappedSuperclass
 @EntityListeners(AuditingEntityListener::class)
 class BaseEntity(
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) var id:Long?=null,
-    @CreatedDate @Temporal(TemporalType.TIMESTAMP) var createdDate: Date?=null,
-    @LastModifiedDate @Temporal(TemporalType.TIMESTAMP) var modifiedDate: Date?=null,
-    @CreatedBy var createdBy:Long?=null,
-    @LastModifiedBy var lastModifiedBy: Long?=null,
-    @Column(nullable = false) @ColumnDefault(value = "false") var deleted:Boolean = false
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) var id: Long? = null,
+    @CreatedDate @Temporal(TemporalType.TIMESTAMP) var createdDate: Date? = null,
+    @LastModifiedDate @Temporal(TemporalType.TIMESTAMP) var modifiedDate: Date? = null,
+    @CreatedBy var createdBy: Long? = null,
+    @LastModifiedBy var lastModifiedBy: Long? = null,
+    @Column(nullable = false) @ColumnDefault(value = "false") var deleted: Boolean = false
 )
-@Entity
-class Patient(
-    var fullName :String,
-    @Column(unique = true, nullable = false)
-    var username :String,
-    var dateOfBirth : LocalDate,
-    var balance:BigDecimal,
-    @Enumerated(EnumType.STRING)
-    var gender:Gender,
-):BaseEntity()
 
 @Entity
 class RefreshToken(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id : Long? = null,
+    val id: Long? = null,
     @ManyToOne
-    val employee: Employee,
-    val refreshToken:String,
+    val employee: User,
+    val refreshToken: String,
     val deleted: Boolean = false
 )
 
 
 @Entity
-class Employee (
-    var fullName:String,
+@Table(name = "users")
+class User(
+    var fullName: String,
     @Column(unique = true, nullable = false)
     @get:JvmName("getEmployeeUsername")
     var username: String,
     @get:JvmName("getEmployeePassword")
-    var password:String,
+    var password: String,
     @Enumerated(EnumType.STRING)
-    var role:Role,
-    ):BaseEntity(),UserDetails{
+    var role: Role = Role.PATIENT,
+    @Enumerated(EnumType.STRING)
+    var gender: Gender
+
+) : BaseEntity(), UserDetails {
     override fun getAuthorities(): List<SimpleGrantedAuthority> {
         return listOf(SimpleGrantedAuthority("ROLE_$role"))
     }
@@ -73,71 +66,70 @@ class Employee (
         return username
     }
 
-    fun getId():Long{
+    fun getId(): Long {
         return id!!
     }
 
 }
 
 @Entity
-class Service(
+class Item(
     @Column(unique = true, nullable = false)
-    var name:String,
+    var name: String,
     @Column(columnDefinition = "TEXT")
-    var description:String,
-    var price:BigDecimal,
-    var duration : Long,
-    var paymentType : String,
-):BaseEntity()
+    var description: String,
+    var price: BigDecimal,
+    var duration: Long,
+    var paymentType: String,
+) : BaseEntity()
 
 
 @Entity
 class DoctorSchedule(
-   @ManyToOne
-   var doctor:Employee,
-   var dayOfWeek : LocalDate,
-   var startTime : LocalTime,
-   var finishTime:LocalTime,
-   var launchStart : LocalTime,
-   var launchEnd:LocalTime,
-   @Enumerated(EnumType.STRING)
-   var status : DoctorStatus
-):BaseEntity()
+    @ManyToOne
+    var doctor: User,
+    var date: LocalDate,
+    var startTime: LocalTime,
+    var finishTime: LocalTime,
+    var launchStart: LocalTime,
+    var launchEnd: LocalTime,
+    @Enumerated(EnumType.STRING)
+    var status: DoctorStatus
+) : BaseEntity()
 
 @Entity
 class Card(
-   @OneToOne
-   val patient:Patient,
-   var totalAmount:BigDecimal,
-   var status:CardStatus
-):BaseEntity()
+    @OneToOne
+    val patient: User,
+    var totalAmount: BigDecimal,
+    var status: CardStatus,
+    val cardNumber:String
+) : BaseEntity()
 
 @Entity
-class CardService(
+class CardItem(
     @ManyToOne
-    var card:Card,
+    var card: Card,
     @ManyToOne
-    var service:Service,
+    var item: Item,
     @ManyToOne
-    var doctor:Employee,
-    var fromDate:LocalDate,
-    var toDate:LocalDate?=null,
-    var status:CardServiceStatus,
-):BaseEntity()
+    var doctor: User,
+    var fromDate: LocalDate,
+    var toDate: LocalDate? = null,
+    var status: CardItemStatus,
+) : BaseEntity()
 
 
 @Entity
 class Payment(
     @ManyToOne
-    val cardService : CardService,
+    var cardItem: CardItem,
     @ManyToOne
-    val patient: Patient,
-    var paidAmount : BigDecimal,
+    val patient: User,
+    var paidAmount: BigDecimal,
     var paymentMethod: PaymentMethod,
     var paymentStatus: PaymentStatus
-):BaseEntity()
-
-
+) : BaseEntity()
 
 
 @Embeddable
@@ -145,7 +137,7 @@ class LocalizedString(
     var uz: String,
     var ru: String,
     var en: String,
-    ){
+) {
     @Transient
     fun localized(): String {
         return when (LocaleContextHolder.getLocale().language) {
@@ -156,4 +148,18 @@ class LocalizedString(
         }
     }
 }
+
+@Entity
+@Table(name = "clinic")
+class ClinicEntity(
+    @Column(nullable = false)
+    var name: String,
+    var address: String,
+    var phone: String,
+    @Column(columnDefinition = "TEXT")
+    var description: String,
+    var openingHours: LocalTime,
+    var closingHours: LocalTime,
+    var createdYear:LocalDate
+):BaseEntity()
 

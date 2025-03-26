@@ -6,51 +6,56 @@ enum class Gender {
     FEMALE
 }
 
-enum class Role{
+enum class Role {
     DOCTOR,
     DIRECTOR,
     CASHIER,
+    OWNER,
+    PATIENT
 }
-enum class DoctorStatus{
+
+enum class DoctorStatus {
     HAS_PATIENT,
     NO_PATIENT
 }
-enum class CardStatus{
-    ACTIVE,NOT_ACTIVE
-}
-enum class CardServiceStatus{
-    IN_PROCESS,DONE
+
+enum class CardStatus {
+    ACTIVE, NOT_ACTIVE
 }
 
-enum class PaymentMethod{
-    PAYME,CLICK,PAYNET
+enum class CardItemStatus {
+    IN_PROCESS, DONE
 }
-enum class PaymentStatus{
-    PAID,NOT_PAID
+
+enum class PaymentMethod {
+    PAYME, CLICK, PAYNET
 }
+
+enum class PaymentStatus {
+    PAID, NOT_PAID
+}
+
 enum class ErrorCode(val code: Int) {
-
-    PATIENT_NOT_FOUND(100),
-    PATIENT_ALREADY_EXIST(101),
-    EMPLOYEE_NOT_FOUND(200),
+    USER_NOT_FOUND(100),
+    USER_ALREADY_EXIST(101),
     SERVICE_NOT_FOUND(300),
     SERVICE_ALREADY_EXIST(301),
     DOCTOR_SCHEDULE_NOT_FOUND(400),
     DOCTOR_SCHEDULE_NOT_AVAILABLE(401),
-
-
     NO_HAVE_PERMISSION(500),
-
     CARD_NOT_FOUND(550),
     CARD_SERVICE_NOT_FOUND(551),
-
     VALIDATION_ERROR(600),
     BEFORE_TIME_ERROR(650),
-
     BALANCE_NOT_ENOUGH(700),
-
     LOGIN_ERROR_EXCEPTION(777),
-
     FORBIDDEN_EXCEPTION(403),
-    EMPLOYEE_HAS_NO_ROLE(555)
+    EMPLOYEE_HAS_NO_ROLE(555),
+    ENUM_TYPE_ERROR(122),
+    CLINIC_NOT_FOUND(221),
+    DAY_IS_NOT_AVAILABLE(228),
+    USER_HAS_CARD(333),
+    SERVICE_FINISHED(340),
+    JWT_TOKEN_EXCEPTION(660),
+    MUCH_MONEY_DONT_NEED(661)
 }

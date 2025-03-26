@@ -5,7 +5,6 @@ import jakarta.validation.Constraint
 import jakarta.validation.ConstraintValidator
 import jakarta.validation.ConstraintValidatorContext
 import jakarta.validation.Payload
-import java.util.*
 import kotlin.reflect.KClass
 
 @Target(AnnotationTarget.FIELD)
@@ -33,8 +32,6 @@ class LocalizedStringValidator : ConstraintValidator<ValidLocalizedString, Local
             .all { it.length <= max }
     }
 }
-
-
 
 
 @Target(AnnotationTarget.FIELD, AnnotationTarget.VALUE_PARAMETER)
